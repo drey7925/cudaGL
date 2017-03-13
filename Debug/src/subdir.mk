@@ -17,8 +17,8 @@ CU_DEPS += \
 src/%.o: ../src/%.cu
 	@echo 'Building file: $<'
 	@echo 'Invoking: NVCC Compiler'
-	/usr/bin/nvcc -G -g -O0 -gencode arch=compute_50,code=sm_50  -odir "src" -M -o "$(@:%.o=%.d)" "$<"
-	/usr/bin/nvcc -G -g -O0 --compile --relocatable-device-code=false -gencode arch=compute_50,code=compute_50 -gencode arch=compute_50,code=sm_50  -x cu -o  "$@" "$<"
+	/usr/bin/nvcc -D_FORCE_INLINES -G -g -O3 --use_fast_math -Xcompiler -Wall -Xcompiler -Wextra -gencode arch=compute_50,code=sm_50  -odir "src" -M -o "$(@:%.o=%.d)" "$<"
+	/usr/bin/nvcc -D_FORCE_INLINES -G -g -O3 --use_fast_math -Xcompiler -Wall -Xcompiler -Wextra --compile --relocatable-device-code=false -gencode arch=compute_50,code=compute_50 -gencode arch=compute_50,code=sm_50  -x cu -o  "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

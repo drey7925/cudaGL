@@ -33,6 +33,7 @@ src/crapgl.o : ../src/crapgl.cu \
     /usr/include/common_functions.h \
     /usr/include/string.h \
     /usr/include/xlocale.h \
+    /usr/include/x86_64-linux-gnu/bits/string3.h \
     /usr/include/time.h \
     /usr/include/x86_64-linux-gnu/bits/time.h \
     /usr/include/x86_64-linux-gnu/bits/types.h \
@@ -50,6 +51,8 @@ src/crapgl.o : ../src/crapgl.cu \
     /usr/include/wchar.h \
     /usr/lib/gcc/x86_64-linux-gnu/5/include/stdarg.h \
     /usr/include/x86_64-linux-gnu/bits/sys_errlist.h \
+    /usr/include/x86_64-linux-gnu/bits/stdio.h \
+    /usr/include/x86_64-linux-gnu/bits/stdio2.h \
     /usr/include/stdlib.h \
     /usr/include/x86_64-linux-gnu/bits/waitflags.h \
     /usr/include/x86_64-linux-gnu/bits/waitstatus.h \
@@ -61,10 +64,13 @@ src/crapgl.o : ../src/crapgl.cu \
     /usr/include/x86_64-linux-gnu/sys/select.h \
     /usr/include/x86_64-linux-gnu/bits/select.h \
     /usr/include/x86_64-linux-gnu/bits/sigset.h \
+    /usr/include/x86_64-linux-gnu/bits/select2.h \
     /usr/include/x86_64-linux-gnu/sys/sysmacros.h \
     /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
     /usr/include/alloca.h \
+    /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
     /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+    /usr/include/x86_64-linux-gnu/bits/stdlib.h \
     /usr/include/assert.h \
     /usr/include/math_functions.h \
     /usr/include/math.h \
@@ -77,6 +83,7 @@ src/crapgl.o : ../src/crapgl.cu \
     /usr/include/x86_64-linux-gnu/bits/nan.h \
     /usr/include/x86_64-linux-gnu/bits/mathdef.h \
     /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
+    /usr/include/x86_64-linux-gnu/bits/mathinline.h \
     /usr/include/c++/5/cmath \
     /usr/include/c++/5/bits/cpp_type_traits.h \
     /usr/include/c++/5/ext/type_traits.h \
@@ -122,6 +129,7 @@ src/crapgl.o : ../src/crapgl.cu \
     /usr/include/c++/5/bits/postypes.h \
     /usr/include/c++/5/cwchar \
     /usr/include/x86_64-linux-gnu/bits/wchar.h \
+    /usr/include/x86_64-linux-gnu/bits/wchar2.h \
     /usr/include/c++/5/bits/char_traits.h \
     /usr/include/c++/5/bits/stl_algobase.h \
     /usr/include/c++/5/bits/functexcept.h \
