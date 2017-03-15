@@ -4,13 +4,13 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 CU_SRCS += \
-../src/crapgl.cu 
+../src/glFrontend.cu 
 
 OBJS += \
-./src/crapgl.o 
+./src/glFrontend.o 
 
 CU_DEPS += \
-./src/crapgl.d 
+./src/glFrontend.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes

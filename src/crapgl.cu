@@ -13,11 +13,15 @@
 #include <numeric>
 #include <stdlib.h>
 #include <stdio.h>
-
+#ifndef CRAPGL_CU
+#define CRAPGL_CU
 static void CheckCudaErrorAux(const char *, unsigned, const char *,
 		cudaError_t);
+#ifndef NO_CHECK_CUDA
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
-
+#else
+#define CUDA_CHECK_RETURN(value) value
+#endif
 void* cudaHostMallocHelper(size_t size) {
 	void* ptr;
 	CUDA_CHECK_RETURN(cudaMallocHost(&ptr, size));
@@ -154,28 +158,55 @@ private:
 class TransformedVertexBuffer {
 public:
 	TransformedVertexBuffer(short capacity, size_t desiredStride) :
-	vtx_count(0),
-	vtx_capacity(capacity),
-	stride(computeStride(desiredStride)),
-	gpu_data(cudaMallocHelper(computeSize(computeStride(desiredStride), capacity))) {}
-	~TransformedVertexBuffer(){
+			vtx_count(0), vtx_capacity(capacity), stride(
+					computeStride(desiredStride)), gpu_data(
+					cudaMallocHelper(
+							computeSize(computeStride(desiredStride),
+									capacity))) {
+	}
+
+	~TransformedVertexBuffer() {
 		CUDA_CHECK_RETURN(cudaFree(gpu_data));
 	}
 private:
 	short vtx_count;
 	const short vtx_capacity;
 	const size_t stride;
-	const void* gpu_data;
+	void* const gpu_data;
 };
 
-enum FaceCulling { front, back, none };
-enum DepthTest { greater, less, greater_or_equal, less_or_equal, always }
+enum FaceCulling {
+	front, back, none
+};
+enum DepthTest {
+	greater, less, greater_or_equal, less_or_equal, always
+};
 
 class RenderOptions {
 public:
 	FaceCulling culling;
 	DepthTest depthTest;
 };
+
+void render(Vbo* vbo, VtxShaderDesc* vertShader, FragShaderDesc* fragShader, TransformedVertexBuffer* tvb){
+
+}
+
+
+
+class CrapGlException: public std::exception {
+private:
+    std::string message_;
+public:
+
+    CrapGlException(const std::string& message) : message_(message) { }
+    virtual const char* what() const throw() {
+        return message_.c_str();
+    }
+    virtual ~CrapGlException() throw() {};
+};
+
+
 
 /**
  * Check the return value of the CUDA runtime API call and exit
@@ -190,10 +221,5 @@ static void CheckCudaErrorAux(const char *file, unsigned line,
 	exit(1);
 }
 
-int main(int argc, char** argv) {
-	vec4 v4;
-	v4.t = 0;
-	//if((*foo)(v4, NULL, &v4, NULL)) puts("Hello world\n");
 
-}
-
+#endif
