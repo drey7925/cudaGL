@@ -35,6 +35,8 @@
 								<option id="nvcc.compiler.def.symbols.313152251" name="Defined symbols (-D)" superClass="nvcc.compiler.def.symbols" valueType="definedSymbols">
 									<listOptionValue builtIn="false" value="_FORCE_INLINES"/>
 								</option>
+								<option id="nvcc.compiler.keep.1845047055" name="Keep intermidiate files (-keep)" superClass="nvcc.compiler.keep" value="true" valueType="boolean"/>
+								<option id="nvcc.compiler.cpp11option.1642202912" superClass="nvcc.compiler.cpp11option" value="true" valueType="boolean"/>
 								<inputType id="nvcc.compiler.input.cu.484838051" superClass="nvcc.compiler.input.cu"/>
 								<inputType id="nvcc.compiler.input.cpp.1239502838" superClass="nvcc.compiler.input.cpp"/>
 								<inputType id="nvcc.compiler.input.c.2061350436" superClass="nvcc.compiler.input.c"/>
@@ -55,13 +57,6 @@
 							</tool>
 						</toolChain>
 					</folderInfo>
-					<fileInfo id="com.nvidia.cuda.ide.on_path.configuration.debug.510539097.654451224" name="glFrontend.cu" rcbsApplicability="disable" resourcePath="src/glFrontend.cu" toolsToInvoke="nvcc.compiler.base.941326205.227127786">
-						<tool id="nvcc.compiler.base.941326205.227127786" name="NVCC Compiler" superClass="nvcc.compiler.base.941326205">
-							<inputType id="nvcc.compiler.input.cu.1325788938" superClass="nvcc.compiler.input.cu"/>
-							<inputType id="nvcc.compiler.input.cpp.1143181083" superClass="nvcc.compiler.input.cpp"/>
-							<inputType id="nvcc.compiler.input.c.233685280" superClass="nvcc.compiler.input.c"/>
-						</tool>
-					</fileInfo>
 					<sourceEntries>
 						<entry excluding="crapgl.cu" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
 					</sourceEntries>
@@ -156,4 +151,6 @@
 			<resource resourceType="PROJECT" workspacePath="/cudagl"/>
 		</configuration>
 	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
 </cproject>

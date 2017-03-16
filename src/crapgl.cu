@@ -13,6 +13,8 @@
 #include <numeric>
 #include <stdlib.h>
 #include <stdio.h>
+#include <memory>
+#include <sstream>
 #ifndef CRAPGL_CU
 #define CRAPGL_CU
 static void CheckCudaErrorAux(const char *, unsigned, const char *,
@@ -22,6 +24,23 @@ static void CheckCudaErrorAux(const char *, unsigned, const char *,
 #else
 #define CUDA_CHECK_RETURN(value) value
 #endif
+
+class CrapGlException: public std::exception {
+private:
+	std::string message_;
+public:
+
+	CrapGlException(const std::string& message) :
+			message_(message) {
+	}
+	virtual const char* what() const throw () {
+		return message_.c_str();
+	}
+	virtual ~CrapGlException() throw () {
+	}
+	;
+};
+
 void* cudaHostMallocHelper(size_t size) {
 	void* ptr;
 	CUDA_CHECK_RETURN(cudaMallocHost(&ptr, size));
@@ -50,18 +69,20 @@ size_t computeSize(size_t stride, short capacity) {
  * gpu_XXX pointers are in CUDA memory
  */
 class Vbo {
+	friend class ShaderPipeline;
 public:
-	Vbo(short stride, short capacity, short indexCapacity) :
-			stride(computeStride(stride)), capacity(capacity), count(0), index_capacity(
-					capacity), index_count(0), cpu_data(
+	Vbo(short vertexSize, short capacity, short indexCapacity) :
+			stride(computeStride(vertexSize)), vtxsize(vertexSize), capacity(
+					capacity), count(0), index_capacity(capacity), index_count(
+					0), cpu_data(
 					cudaHostMallocHelper(
-							computeSize(computeStride(stride), capacity))), cpu_index_data(
+							computeSize(computeStride(vertexSize), capacity))), cpu_index_data(
 					(short*) cudaHostMallocHelper(
 							computeIndexSize(indexCapacity))), gpu_data(
 					cudaMallocHelper(
-							computeSize(computeStride(stride), capacity))), gpu_index_data(
+							computeSize(computeStride(vertexSize), capacity))), gpu_index_data(
 					(short*) cudaMallocHelper(computeIndexSize(indexCapacity))), size(
-					computeSize(computeStride(stride), capacity)), index_size(
+					computeSize(computeStride(vertexSize), capacity)), index_size(
 					computeIndexSize(indexCapacity)), dirty(false), indices_dirty(
 					false) {
 	}
@@ -71,22 +92,30 @@ public:
 		CUDA_CHECK_RETURN(cudaFree(gpu_data));
 		CUDA_CHECK_RETURN(cudaFree(gpu_index_data));
 	}
-	void* getDataBuffer() {
+	void markDirty() {
 		dirty = true;
+	}
+	void markIndicesDirty() {
+		indices_dirty = true;
+	}
+
+	void* getDataBuffer() {
+		markDirty();
 		return cpu_data;
 	}
 	short* getIndexBuffer() {
-		indices_dirty = true;
+		markIndicesDirty();
 		return cpu_index_data;
 	}
 	void updateBuffers() {
 		if (dirty) {
+			dirty = false;
 			CUDA_CHECK_RETURN(
 					cudaMemcpy(gpu_data, cpu_data, size,
 							cudaMemcpyHostToDevice));
-			dirty = false;
 		}
 		if (indices_dirty) {
+			indices_dirty = false;
 			CUDA_CHECK_RETURN(
 					cudaMemcpy(gpu_index_data, cpu_index_data, index_size,
 							cudaMemcpyHostToDevice));
@@ -99,6 +128,7 @@ private:
 	}
 
 	const size_t stride;
+	const size_t vtxsize;
 	const short capacity;
 	short count;
 	const short index_capacity;
@@ -129,33 +159,38 @@ typedef bool (*fragmentShader_t)(vec4 position_in, void* vtx_in,
 
 // sizes in bytes
 class VtxShaderDesc {
+	friend class ShaderPipeline;
 public:
-	VtxShaderDesc(short inSize, short outSize, short uniformsSize,
+	VtxShaderDesc(size_t inSize, size_t outSize, size_t uniformsSize,
 			vertexShader_t* kern) :
 			vtxin_size(inSize), vtxout_size(outSize), uniforms_size(
 					uniformsSize) {
-		cudaMemcpyFromSymbol(&this->kern, kern, sizeof(vertexShader_t));
+		cudaMemcpyFromSymbol(&this->kern, kern, sizeof(vertexShader_t), 0,
+				cudaMemcpyDeviceToHost);
 	}
 private:
-	const short vtxin_size;
-	const short vtxout_size;
-	const short uniforms_size;
+	const size_t vtxin_size;
+	const size_t vtxout_size;
+	const size_t uniforms_size;
 	vertexShader_t* kern;
 };
 
 class FragShaderDesc {
-	FragShaderDesc(short inSize, short uniformsSize, fragmentShader_t* kern) :
+	friend class ShaderPipeline;
+	FragShaderDesc(size_t inSize, size_t uniformsSize, fragmentShader_t* kern) :
 			vtxin_size(inSize), uniforms_size(uniformsSize) {
-		cudaMemcpyFromSymbol(&this->kern, kern, sizeof(fragmentShader_t));
+		cudaMemcpyFromSymbol(&this->kern, kern, sizeof(fragmentShader_t), 0,
+				cudaMemcpyDeviceToHost);
 	}
 private:
-	const short vtxin_size;
-	const short uniforms_size;
+	const size_t vtxin_size;
+	const size_t uniforms_size;
 	fragmentShader_t* kern;
 };
 
 // these live on the GPU! No CPU copy available (for now)
 class TransformedVertexBuffer {
+	friend class ShaderPipeline;
 public:
 	TransformedVertexBuffer(short capacity, size_t desiredStride) :
 			vtx_count(0), vtx_capacity(capacity), stride(
@@ -182,31 +217,108 @@ enum DepthTest {
 	greater, less, greater_or_equal, less_or_equal, always
 };
 
-class RenderOptions {
+class ShaderPipeline {
 public:
-	FaceCulling culling;
-	DepthTest depthTest;
-};
+	ShaderPipeline(Vbo* vbo, VtxShaderDesc* vert, FragShaderDesc* frag) :
+			vbo_(vbo), vert_(vert), frag_(frag), cull_(back), depth_(less), vert_dirty(
+					false), frag_dirty(false) {
+		if (vert->vtxin_size != vbo->vtxsize) {
+			throw CrapGlException(
+					"Mismatch between VBO vertex size and vertex shader input size.");
+		}
+		if (vert->vtxout_size != frag->vtxin_size) {
+			throw CrapGlException(
+					"Mismatch between vertex shader output size and fragment shader input size.");
+		}
+		tvb_ =
+				std::unique_ptr < TransformedVertexBuffer
+						> (new TransformedVertexBuffer(vbo->capacity,
+								vert->vtxin_size));
+		vert_uniforms = cudaHostMallocHelper(vert_->uniforms_size);
+		frag_uniforms = cudaHostMallocHelper(frag_->uniforms_size);
+		vert_uniforms_gpu = cudaMallocHelper(vert_->uniforms_size);
+		frag_uniforms_gpu = cudaMallocHelper(frag_->uniforms_size);
 
-void render(Vbo* vbo, VtxShaderDesc* vertShader, FragShaderDesc* fragShader, TransformedVertexBuffer* tvb){
+	}
 
-}
+	~ShaderPipeline() {
+		CUDA_CHECK_RETURN(cudaFreeHost(vert_uniforms));
+		CUDA_CHECK_RETURN(cudaFreeHost(frag_uniforms));
+		CUDA_CHECK_RETURN(cudaFree(vert_uniforms_gpu));
+		CUDA_CHECK_RETURN(cudaFree(frag_uniforms_gpu));
+	}
 
+	FaceCulling getCull() const {
+		return cull_;
+	}
 
+	void setCull(FaceCulling cull) {
+		cull_ = cull;
+	}
 
-class CrapGlException: public std::exception {
+	DepthTest getDepth() const {
+		return depth_;
+	}
+
+	void setDepth(DepthTest depth) {
+		depth_ = depth;
+	}
+
+	const Vbo* const & getVbo() const {
+		return vbo_;
+	}
+
+	const VtxShaderDesc* const & getVert() const {
+		return vert_;
+	}
+
+	void render(cudaSurfaceObject_t surface, int width, int height) {
+		if (vert_dirty) {
+			vert_dirty = false;
+			CUDA_CHECK_RETURN(
+					cudaMemcpy(vert_uniforms_gpu, vert_uniforms,
+							vert_->uniforms_size, cudaMemcpyHostToDevice));
+		}
+		if (frag_dirty) {
+			frag_dirty = false;
+			CUDA_CHECK_RETURN(
+					cudaMemcpy(frag_uniforms_gpu, frag_uniforms,
+							frag_->uniforms_size, cudaMemcpyHostToDevice));
+		}
+	}
+
+	void markVertDirty() {
+		vert_dirty = true;
+	}
+
+	void markFragDirty() {
+		frag_dirty = true;
+	}
+
+	void* getFragUniforms() const {
+		markVertDirty();
+		return frag_uniforms;
+	}
+
+	void* getVertUniforms() const {
+		markFragDirty();
+		return vert_uniforms;
+	}
+
 private:
-    std::string message_;
-public:
-
-    CrapGlException(const std::string& message) : message_(message) { }
-    virtual const char* what() const throw() {
-        return message_.c_str();
-    }
-    virtual ~CrapGlException() throw() {};
+	Vbo* const vbo_;
+	VtxShaderDesc* const vert_;
+	FragShaderDesc* const frag_;
+	std::unique_ptr<TransformedVertexBuffer> tvb_;
+	void* vert_uniforms;
+	void* frag_uniforms;
+	void* vert_uniforms_gpu;
+	void* frag_uniforms_gpu;
+	FaceCulling cull_;
+	DepthTest depth_;
+	bool vert_dirty;
+	bool frag_dirty;
 };
-
-
 
 /**
  * Check the return value of the CUDA runtime API call and exit
@@ -216,10 +328,11 @@ static void CheckCudaErrorAux(const char *file, unsigned line,
 		const char *statement, cudaError_t err) {
 	if (err == cudaSuccess)
 		return;
-	std::cerr << statement << " returned " << cudaGetErrorString(err) << "("
-			<< err << ") at " << file << ":" << line << std::endl;
-	exit(1);
+	std::stringstream ss;
+	ss << statement << " returned " << cudaGetErrorString(err) << "(" << err
+			<< ") at " << file << ":" << line;
+	std::cout << ss.str() << std::endl;
+	throw CrapGlException(ss.str());
 }
-
 
 #endif

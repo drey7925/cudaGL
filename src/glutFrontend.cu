@@ -23,11 +23,13 @@ cudaGraphicsResource_t cudaTexSurface;
 int texWidth;
 int texHeight;
 bool runOnce = true;
-__global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width, int height) {
-	char4 c4 = make_char4(threadIdx.x, threadIdx.x, 0, 255);
-	for(int x = blockIdx.x; x < width; x+=gridDim.x){
-		for(int y = threadIdx.x; y < height; y+=blockDim.x){
-	if(x>y)surf2Dwrite(c4, surf, x*sizeof(char4), y);
+__global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width,
+		int height) {
+	int c4 = (threadIdx.x) | (threadIdx.x << 8) | (255 << 24);
+	for (int x = blockIdx.x; x < width; x += gridDim.x) {
+		for (int y = threadIdx.x; y < height; y += blockDim.x) {
+			if (x > y)
+				surf2Dwrite(c4, surf, x * sizeof(char4), y);
 		}
 	}
 }
@@ -35,40 +37,42 @@ __global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width, int heigh
 long totalTime = 0;
 int iters = 0;
 void cudaDrawToTexture() {
-	cudaGraphicsMapResources(1, &cudaTexSurface);
-	{
-		cudaArray_t viewCudaArray;
-		cudaGraphicsSubResourceGetMappedArray(&viewCudaArray, cudaTexSurface, 0,
-				0);
-		cudaResourceDesc viewCudaArrayResourceDesc;
+	if (runOnce) {
+		cudaGraphicsMapResources(1, &cudaTexSurface);
 		{
-			viewCudaArrayResourceDesc.resType = cudaResourceTypeArray;
-			viewCudaArrayResourceDesc.res.array.array = viewCudaArray;
-		}
-		cudaSurfaceObject_t viewCudaSurfaceObject;
-		cudaCreateSurfaceObject(&viewCudaSurfaceObject,
-				&viewCudaArrayResourceDesc);
-	        {
-	            if(runOnce){
-	            	clock_t tStart = clock();
-	            	dummyRenderKernel<<<64,256>>>(viewCudaSurfaceObject, texWidth, texHeight);
+			cudaArray_t viewCudaArray;
+			cudaGraphicsSubResourceGetMappedArray(&viewCudaArray,
+					cudaTexSurface, 0, 0);
+			cudaResourceDesc viewCudaArrayResourceDesc;
+			{
+				viewCudaArrayResourceDesc.resType = cudaResourceTypeArray;
+				viewCudaArrayResourceDesc.res.array.array = viewCudaArray;
+			}
+			cudaSurfaceObject_t viewCudaSurfaceObject;
+			cudaCreateSurfaceObject(&viewCudaSurfaceObject,
+					&viewCudaArrayResourceDesc);
+			{
 
+				clock_t tStart = clock();
+				dummyRenderKernel<<<64,256>>>(viewCudaSurfaceObject, texWidth, texHeight);
+
+				cudaStreamSynchronize(0);
 				clock_t time = clock() - tStart;
 				totalTime += time;
 				iters++;
 				printf("%.0f shade megaops per second (avg %0f)\n",
-						texWidth * texHeight * CLOCKS_PER_SEC
-								/ (double) (time) / 1000000, iters*texWidth * texHeight * CLOCKS_PER_SEC
+						texWidth * texHeight * CLOCKS_PER_SEC / (double) (time)
+								/ 1000000,
+						iters * texWidth * texHeight * CLOCKS_PER_SEC
 								/ (double) (totalTime) / 1000000);
 
-	            }
-	            runOnce = false;
-	        }
-		cudaDestroySurfaceObject(viewCudaSurfaceObject);
-	}
-	cudaGraphicsUnmapResources(1, &cudaTexSurface);
+			}
+			cudaDestroySurfaceObject(viewCudaSurfaceObject);
+		}
+		cudaGraphicsUnmapResources(1, &cudaTexSurface);
 
-	cudaStreamSynchronize(0);
+	}
+	runOnce = false;
 }
 
 void RenderSceneCB() {
@@ -110,7 +114,7 @@ void initTextures(int width, int height) {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-				GL_UNSIGNED_BYTE, NULL);
+		GL_UNSIGNED_BYTE, NULL);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -121,12 +125,13 @@ void initTextures(int width, int height) {
 	data[3] = 255;
 	glBindTexture(GL_TEXTURE_2D, glTexID);
 	for (int i = 0; i < width; i++) {
-		for(int j = 0; j < height; j++){
-		glTexSubImage2D(GL_TEXTURE_2D, 0, i, j, 1, 1,
-		GL_RGBA,
-		GL_UNSIGNED_BYTE, data);
+		for (int j = 0; j < height; j++) {
+			glTexSubImage2D(GL_TEXTURE_2D, 0, i, j, 1, 1,
+			GL_RGBA,
+			GL_UNSIGNED_BYTE, data);
 		}
 	}
+	void* ptr;
 	CUDA_CHECK_RETURN(
 			cudaGraphicsGLRegisterImage(&cudaTexSurface, glTexID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 	texWidth = width;
@@ -140,25 +145,25 @@ void resize(int width, int height) {
 	glBindTexture(GL_TEXTURE_2D, glTexID);
 	{
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-				GL_UNSIGNED_BYTE, NULL);
+		GL_UNSIGNED_BYTE, NULL);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
 	CUDA_CHECK_RETURN(
-			cudaGraphicsGLRegisterImage(&cudaT~exSurface, glTexID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
+			cudaGraphicsGLRegisterImage(&cudaTexSurface, glTexID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 	texWidth = width;
 	texHeight = height;
 	runOnce = true;
 }
 
-void keyb(unsigned char c, int x, int y){
-	if(c=='a') runOnce = true;
+void keyb(unsigned char c, int x, int y) {
+	if (c == 'a')
+		runOnce = true;
 }
 
 int main(int argc, char** argv) {
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
 	glutInitWindowSize(1024, 768);
-
 	glutInitWindowPosition(100, 100);
 	glutCreateWindow("CRAP-GL render surface (GLUT)");
 	glutDisplayFunc(RenderSceneCB);
