@@ -26,15 +26,15 @@ bool runOnce = true;
 __global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width,
 		int height) {
 	int c4 = (threadIdx.x) | (threadIdx.x << 8) | (255 << 24);
-	for (int x = blockIdx.x; x < width; x += gridDim.x) {
-		for (int y = threadIdx.x; y < height; y += blockDim.x) {
-			if (x > y)
-				surf2Dwrite(c4, surf, x * sizeof(char4), y);
+	int mindim = min(width, height);
+	for (int y = threadIdx.x; y < mindim; y += blockDim.x) {
+		for (int x = y + blockIdx.x; x < width; x += (gridDim.x)) {
+			if((x/2+y/2)%2==0) surf2Dwrite(c4, surf, x * sizeof(char4), y);
 		}
 	}
+
 }
 
-long totalTime = 0;
 int iters = 0;
 void cudaDrawToTexture() {
 	if (runOnce) {
@@ -54,17 +54,14 @@ void cudaDrawToTexture() {
 			{
 
 				clock_t tStart = clock();
-				dummyRenderKernel<<<64,256>>>(viewCudaSurfaceObject, texWidth, texHeight);
+				dummyRenderKernel<<<64, 256>>>(viewCudaSurfaceObject, texWidth, texHeight);
 
 				cudaStreamSynchronize(0);
 				clock_t time = clock() - tStart;
-				totalTime += time;
 				iters++;
-				printf("%.0f shade megaops per second (avg %0f)\n",
+				printf("%f shade megaops per second\n",
 						texWidth * texHeight * CLOCKS_PER_SEC / (double) (time)
-								/ 1000000,
-						iters * texWidth * texHeight * CLOCKS_PER_SEC
-								/ (double) (totalTime) / 1000000);
+								/ 1000000);
 
 			}
 			cudaDestroySurfaceObject(viewCudaSurfaceObject);
@@ -131,7 +128,6 @@ void initTextures(int width, int height) {
 			GL_UNSIGNED_BYTE, data);
 		}
 	}
-	void* ptr;
 	CUDA_CHECK_RETURN(
 			cudaGraphicsGLRegisterImage(&cudaTexSurface, glTexID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
 	texWidth = width;

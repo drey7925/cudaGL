@@ -121,6 +121,23 @@ public:
 							cudaMemcpyHostToDevice));
 		}
 	}
+
+	short getCount() const {
+		return count;
+	}
+
+	void setCount(short count) {
+		this->count = count;
+	}
+
+	short getIndexCount() const {
+		return index_count;
+	}
+
+	void setIndexCount(short indexCount) {
+		index_count = indexCount;
+	}
+
 private:
 
 	size_t computeIndexSize(short index_capacity) {
@@ -143,7 +160,7 @@ private:
 	bool dirty;
 	bool indices_dirty;
 };
-struct vec4 {
+struct __align__(16) vec4 {
 	float x;
 	float y;
 	float z;
@@ -197,17 +214,45 @@ public:
 					computeStride(desiredStride)), gpu_data(
 					cudaMallocHelper(
 							computeSize(computeStride(desiredStride),
-									capacity))) {
+									capacity))), gpu_vec_data(
+					cudaMallocHelper(capacity * sizeof(vec4))) {
 	}
 
 	~TransformedVertexBuffer() {
 		CUDA_CHECK_RETURN(cudaFree(gpu_data));
+		CUDA_CHECK_RETURN(cudaFree(gpu_vec_data));
 	}
 private:
 	short vtx_count;
 	const short vtx_capacity;
 	const size_t stride;
 	void* const gpu_data;
+	void* const gpu_vec_data;
+};
+
+class DepthBuffer {
+public:
+	DepthBuffer(int width, int height) {
+		curSize = width * height;
+		buffer = (float*) cudaMallocHelper(curSize * sizeof(float));
+		curWidth = width;
+		curHeight = height;
+	}
+	void reshape(int width, int height) {
+		int newSize = width * height;
+		if (newSize > curSize) {
+			CUDA_CHECK_RETURN(cudaFree((void* ) buffer));
+			buffer = (float*) cudaMallocHelper(newSize * sizeof(float));
+			curSize = newSize;
+		}
+		curWidth = width;
+		curHeight = height;
+	}
+private:
+	float* buffer;
+	int curSize;
+	int curWidth;
+	int curHeight;
 };
 
 enum FaceCulling {
@@ -216,6 +261,39 @@ enum FaceCulling {
 enum DepthTest {
 	greater, less, greater_or_equal, less_or_equal, always
 };
+
+// Long-term TODO:
+// Have the TVB track which indices have been computed or not, and don't run the vertex
+// shader for vertices that have already been processed by index.
+
+__global__ void runVertexShaderIndexed(void* vtxin, short index_count,
+		short* indices, size_t vtxin_stride, vertexShader_t shader,
+		void* uniforms, void* vtxout, size_t vtxout_stride, void* positions) {
+// We don't care about blocks; no shared memory. This may change when the long-term TODO is implemented
+	int globId = threadIdx.x + (blockIdx.x * blockDim.x);
+	for (int idx = globId; idx < index_count; idx += blockDim.x * gridDim.x) {
+		//(short vtxid, void* vtx_in, vec4* position_out,
+		//void* vtx_out, void* uniforms);
+		short vboidx = indices[idx];
+		shader(vboidx, (void*) ((char*) vtxin + (vboidx * vtxin_stride)),
+				&((vec4*) positions)[idx],
+				(void*) ((char*) vtxout + (idx * vtxout_stride)), uniforms);
+	}
+}
+
+__global__ void runVertexShaderUnindexed(void* vtxin, short vertex_count,
+		size_t vtxin_stride, vertexShader_t shader, void* uniforms,
+		void* vtxout, size_t vtxout_stride, void* positions) {
+	// We don't care about blocks; no shared memory.
+		int globId = threadIdx.x + (blockIdx.x * blockDim.x);
+		for (int idx = globId; idx < vertex_count; idx += blockDim.x * gridDim.x) {
+			//(short vtxid, void* vtx_in, vec4* position_out,
+			//void* vtx_out, void* uniforms);
+			shader(idx, (void*) ((char*) vtxin + (idx * vtxin_stride)),
+					&((vec4*) positions)[idx],
+					(void*) ((char*) vtxout + (idx * vtxout_stride)), uniforms);
+		}
+}
 
 class ShaderPipeline {
 public:
@@ -244,8 +322,8 @@ public:
 	~ShaderPipeline() {
 		CUDA_CHECK_RETURN(cudaFreeHost(vert_uniforms));
 		CUDA_CHECK_RETURN(cudaFreeHost(frag_uniforms));
-		CUDA_CHECK_RETURN(cudaFree(vert_uniforms_gpu));
-		CUDA_CHECK_RETURN(cudaFree(frag_uniforms_gpu));
+		CUDA_CHECK_RETURN(cudaFree(vert_uniforms_gpu));CUDA_CHECK_RETURN(
+				cudaFree(frag_uniforms_gpu));
 	}
 
 	FaceCulling getCull() const {
@@ -264,15 +342,16 @@ public:
 		depth_ = depth;
 	}
 
-	const Vbo* const & getVbo() const {
+	Vbo* getVbo() {
 		return vbo_;
 	}
 
-	const VtxShaderDesc* const & getVert() const {
+	VtxShaderDesc* getVert() {
 		return vert_;
 	}
 
-	void render(cudaSurfaceObject_t surface, int width, int height) {
+	void render(cudaSurfaceObject_t surface, DepthBuffer* depth, int width,
+			int height) {
 		if (vert_dirty) {
 			vert_dirty = false;
 			CUDA_CHECK_RETURN(
@@ -285,6 +364,7 @@ public:
 					cudaMemcpy(frag_uniforms_gpu, frag_uniforms,
 							frag_->uniforms_size, cudaMemcpyHostToDevice));
 		}
+
 	}
 
 	void markVertDirty() {
@@ -295,12 +375,12 @@ public:
 		frag_dirty = true;
 	}
 
-	void* getFragUniforms() const {
+	void* getFragUniforms() {
 		markVertDirty();
 		return frag_uniforms;
 	}
 
-	void* getVertUniforms() const {
+	void* getVertUniforms() {
 		markFragDirty();
 		return vert_uniforms;
 	}
