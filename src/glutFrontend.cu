@@ -25,7 +25,7 @@ int texHeight;
 bool runOnce = true;
 __global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width,
 		int height) {
-	int c4 = (threadIdx.x) | (threadIdx.x << 8) | (255 << 24);
+	unsigned int c4 = (threadIdx.x) | (threadIdx.x << 8) | (255 << 24);
 	int mindim = min(width, height);
 	for (int y = threadIdx.x; y < mindim; y += blockDim.x) {
 		for (int x = y + blockIdx.x; x < width; x += (gridDim.x)) {
@@ -52,11 +52,14 @@ void cudaDrawToTexture() {
 			cudaCreateSurfaceObject(&viewCudaSurfaceObject,
 					&viewCudaArrayResourceDesc);
 			{
+				crapGlClear<<<64,256>>>(texWidth, texHeight, true, false, 0xFF0000FF, 0, viewCudaSurfaceObject, (int*) 0);
 
+				cudaDeviceSynchronize();
 				clock_t tStart = clock();
+
 				dummyRenderKernel<<<64, 256>>>(viewCudaSurfaceObject, texWidth, texHeight);
 
-				cudaStreamSynchronize(0);
+				cudaDeviceSynchronize();
 				clock_t time = clock() - tStart;
 				iters++;
 				printf("%f shade megaops per second\n",
@@ -67,6 +70,7 @@ void cudaDrawToTexture() {
 			cudaDestroySurfaceObject(viewCudaSurfaceObject);
 		}
 		cudaGraphicsUnmapResources(1, &cudaTexSurface);
+		cudaDeviceSynchronize();
 
 	}
 	runOnce = false;
