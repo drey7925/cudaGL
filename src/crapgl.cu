@@ -27,40 +27,41 @@ static void CheckCudaErrorAux(const char *, unsigned, const char *,
 #ifndef __CUDA_ARCH__
 #define DIVIDE_INTRINSIC(x, y) ((x)/(y))
 #else
-#define DIVIDE_INTRINSIC(x, y) __fdividef((x), (y))
+#define DIVIDE_INTRINSIC(x, y) __fdividef((float)(x), (float)(y))
 #endif
 struct __align__(16) vec4 {
 	float w;
 	float x;
 	float y;
 	float z;
-	vec4(float w = 0.0f, float x = 0.0f, float y = 0.0f, float z = 0.0f) :
+	__host__ __device__ vec4(float w = 0.0f, float x = 0.0f, float y = 0.0f, float z = 0.0f) :
 			w(w), x(x), y(y), z(z) {
 	}
-	;
 
-	vec4 operator-(const vec4& a) {
+	__host__ __device__ vec4 operator-(const vec4& a) {
 		return vec4(w - a.w, x - a.x, y - a.y, z - a.z);
 	}
 
-	vec4 operator+(const vec4& a) {
+	__host__ __device__ vec4 operator+(const vec4& a) {
 		return vec4(a.w + w, a.x + x, a.y + y, a.z + z);
 	}
-	float operator*(const vec4& a) {
+	__host__ __device__ float operator*(const vec4& a) {
 		return (a.w * w) + (a.x * x) + (a.y * y) + (a.z * z);
 	}
 
 };
 
-float dotXY(const vec4& a, const vec4& b) {
+// Dot product of the .xy swizzles of a and b
+__host__ __device__ float dotXY(const vec4& a, const vec4& b) {
 #ifdef __CUDA_ARCH__
 	return fmaf(a.x, b.x, a.y * b.y);
 #else
 	return (a.x*b.x+a.y*b.y);
 #endif
 }
+// 2^5 == 32
 __host__ __device__ int roundUp32(int i) {
-	return ((i - 1) / 32 + 1) * 32;
+	return ((i - 1) >> 5 + 1) * 32;
 }
 
 __host__ __device__ void reproject(vec4 &vec) {
@@ -75,16 +76,17 @@ __device__ unsigned int depthFToUInt(float depth) {
 }
 // from https://devblogs.nvidia.com/parallelforall/lerp-faster-cuda/
 template<typename T>
-__host__         __device__
-        inline T lerp(T v0, T v1, T t) {
-	return fmaf(t, v1, fma(-t, v0, v0));
+__host__           __device__
+          inline T lerp(T v0, T v1, T t) {
+	return fmaf(t, v1, fmaf(-t, v0, v0));
 }
-// modified from Arduino
+// modified from Arduino code to use the division intrinsics
 float map(float x, float in_min, float in_max, float out_min, float out_max) {
 	return fmaf((x - in_min),
 			DIVIDE_INTRINSIC((out_max - out_min), (in_max - in_min)), out_min);
 }
 
+// "bi"linear interpolation
 __device__ float blerp(float v00, float v10, float v01, float u, float v) {
 	return lerp(v00, v10, u) + lerp(0.0f, v01 - v00, v);
 }
@@ -391,10 +393,11 @@ __global__ void runVertexShaderUnindexed(void* vtxin, short vertex_count,
 }
 
 __host__ __device__ int windowSpaceToPixel(float coord, int pixels) {
+	//printf("%d\n", pixels);
 	return (int) (((0.5 * coord + 0.5) * (pixels - 1))); // figure out if width-1 is actually what I want
 }
 
-__host__ __device__ int pixelToWindowSpace(int coord, int pixels) {
+__host__ __device__ float pixelToWindowSpace(int coord, int pixels) {
 	return DIVIDE_INTRINSIC(coord, pixels-1) * 2 - 1; // again, do I want pixels-1 here?
 }
 
@@ -403,6 +406,7 @@ template<fragmentShader_t shader, bool depthTest, bool earlyDepthTest,
 __global__ void runFragmentShader(cudaSurfaceObject_t surf, float* vtxin,
 		vec4* vecData, short vertex_count, int width, int height,
 		unsigned int* depthBuffer, void* uniforms) {
+	//printf("Starting on block %d thread %d\n", blockIdx.x, threadIdx.x);
 	// each block works on a separate triangle. Let's take the naive approach for now and profile/optimize later
 
 	// warps should try to work on small areas together...
@@ -411,24 +415,29 @@ __global__ void runFragmentShader(cudaSurfaceObject_t surf, float* vtxin,
 	int threadXStride = blockDim.x / chunkHeight;
 	int threadYStride = chunkHeight; // for lack of better calculation
 	float vtxin_temp[vtxin_stride];
-	for (int i = blockIdx.x; i < (vertex_count) / 3; i += gridDim.x) {
-
+	for (int i = blockIdx.x; i < (vertex_count / 3); i += gridDim.x) {
+		//printf("Working on triangle %d on block %d thread %d, dim %d x %d\n", i, blockIdx.x, threadIdx.x, width, height);
 		int depthBufferPitch = roundUp32(width);
+		//printf("a %d\n", depthBufferPitch);
 		vec4 v0 = vecData[i * 3];
 		vec4 v1 = vecData[i * 3 + 1];
 		vec4 v2 = vecData[i * 3 + 2];
 		reproject(v0);
 		reproject(v1);
 		reproject(v2);
+		//printf("b\n");
 		float xMin = min(min(v0.x, v1.x), v2.x);
 		float xMax = max(max(v0.x, v1.x), v2.x);
 		float yMin = min(min(v0.y, v1.y), v2.y);
 		float yMax = max(max(v0.y, v1.y), v2.y);
+		//printf("%f c\n", v0.x);
 		// map these to pixel coordinates, clamp to destination surface size
+
 		int xMinScreen = max(windowSpaceToPixel(xMin, width), 0);
 		int xMaxScreen = min(windowSpaceToPixel(xMax, width), width - 1);
 		int yMinScreen = max(windowSpaceToPixel(yMin, height), 0);
 		int yMaxScreen = min(windowSpaceToPixel(yMax, height), height - 1);
+		//printf("%f %f %d %d\n", yMin, yMax, yMinScreen, yMaxScreen);
 		// should have a different path for things that risk diverging madly due to very small X or Y
 		// All the threads in a warp are working on the same triangle
 		// This can be taken care of later though
@@ -452,13 +461,16 @@ __global__ void runFragmentShader(cudaSurfaceObject_t surf, float* vtxin,
 						fmaf(dot00, dot11, -dot01 * dot01));
 				float u = fmaf(dot11, dot02, -dot01 * dot12) * invDenom;
 				float v = fmaf(dot00, dot12, -dot01 * dot02) * invDenom;
+				//printf("X: %d/%f, Y: %d/%f, U: %f, V: %f\n", x, frag.x, y, frag.y, u, v);
 				if (u >= 0 && v >= 0 && u + v <= 1) {
+					//printf("within! %d %d\n",x, y);
 					// in triangle!
 					// Time to interpolate Z
 					// U in terms of v2-v0
 					// V in terms of v1-v0
 
 					frag.z = blerp(v0.z, v2.z, v1.z, u, v);
+					//printf("depth: %f\n", frag.z);
 					bool passedDepthTest = frag.z >= 0 && frag.z <= 1;
 					if (depthTest && earlyDepthTest) {
 						passedDepthTest = depthFunc(depthFToUInt(frag.z),
@@ -467,7 +479,7 @@ __global__ void runFragmentShader(cudaSurfaceObject_t surf, float* vtxin,
 					if (passedDepthTest) {
 						unsigned int color;
 						// If this isn't in L1 cache, it can be refactored to be manually cached in shared or lcl mem.
-						for (int vtxDatum = 0; vtxDatum < vtxin_stride;
+						/*for (int vtxDatum = 0; vtxDatum < vtxin_stride;
 								vtxDatum++) {
 							vtxin_temp[vtxDatum] =
 									blerp(
@@ -477,8 +489,8 @@ __global__ void runFragmentShader(cudaSurfaceObject_t surf, float* vtxin,
 													+ vtxDatum],
 											vtxin[(i * 3 + 3) * vtxin_stride
 													+ vtxDatum], u, v);
-						}
-						bool validFrag = shader(frag, &vtxin_temp, color,
+						}*/
+						bool validFrag = shader(frag, vtxin_temp, color,
 								uniforms);
 						if (depthTest & !earlyDepthTest & validFrag) {
 							validFrag &= depthFunc(depthFToUInt(frag.z),

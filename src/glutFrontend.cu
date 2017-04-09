@@ -23,8 +23,16 @@ cudaGraphicsResource_t cudaTexSurface;
 int texWidth;
 int texHeight;
 bool runOnce = true;
+
+__device__ bool fragDummy(vec4 pos, float* vtx_in,
+		unsigned int& color_out, void* uniforms){color_out = (((int) (pos.x*256))) + (((int) (pos.y*256))<<8) + 0xFFFF0000u;
+return ((int)(pos.x*32)+(int)(pos.y*32))%2==0;};
+
+const fragmentShader_t fd = fragDummy;
+const depthTest_t dt = depth_test::greater;
 __global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width,
 		int height) {
+
 	unsigned int c4 = (threadIdx.x) | (threadIdx.x << 8) | (255 << 24);
 	int mindim = min(width, height);
 	for (int y = threadIdx.x; y < mindim; y += blockDim.x) {
@@ -36,7 +44,19 @@ __global__ void dummyRenderKernel(cudaSurfaceObject_t surf, int width,
 }
 
 int iters = 0;
+vec4 vertsCpu[] = {
+	vec4(1, 1, 0, 1),
+	vec4(1, 1, 1, 1),
+	vec4(1, 0, 1, 1),
+	vec4(1, 0, -1, 1),
+	vec4(1, 0, 0, 1),
+	vec4(1, 1, -1, 1)
+};
+unsigned int* depthBuffer;
+vec4* vertsGpu;
 void cudaDrawToTexture() {
+	void* null = (void*) 0;
+
 	if (runOnce) {
 		cudaGraphicsMapResources(1, &cudaTexSurface);
 		{
@@ -52,13 +72,13 @@ void cudaDrawToTexture() {
 			cudaCreateSurfaceObject(&viewCudaSurfaceObject,
 					&viewCudaArrayResourceDesc);
 			{
-				crapGlClear<<<64,256>>>(texWidth, texHeight, true, false, 0xFF0000FF, 0, viewCudaSurfaceObject, (int*) 0);
+				crapGlClear<<<64,256>>>(texWidth, texHeight, true, false, 0xFFFFFF00, 0, viewCudaSurfaceObject, (int*) 0);
 
 				cudaDeviceSynchronize();
 				clock_t tStart = clock();
-
-				dummyRenderKernel<<<64, 256>>>(viewCudaSurfaceObject, texWidth, texHeight);
-
+				CUDA_CHECK_RETURN(cudaMemcpy(vertsGpu, vertsCpu, sizeof(vec4)*6, cudaMemcpyHostToDevice));
+				//dummyRenderKernel<<<64, 256>>>(viewCudaSurfaceObject, texWidth, texHeight);
+				runFragmentShader<fd, false, false, dt, 4, 1><<<64,32>>>(viewCudaSurfaceObject, (float*) null, (vec4*) vertsGpu, (short) 6, texWidth, texHeight, depthBuffer, depthBuffer);
 				cudaDeviceSynchronize();
 				clock_t time = clock() - tStart;
 				iters++;
@@ -161,6 +181,8 @@ void keyb(unsigned char c, int x, int y) {
 }
 
 int main(int argc, char** argv) {
+	CUDA_CHECK_RETURN(cudaMalloc(&vertsGpu, sizeof(vec4)*6));
+	CUDA_CHECK_RETURN(cudaMalloc(&depthBuffer, sizeof(unsigned int)*1920*1080));
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
 	glutInitWindowSize(1024, 768);
